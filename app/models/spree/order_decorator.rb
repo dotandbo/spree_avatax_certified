@@ -42,7 +42,7 @@ Spree::Order.class_eval do
 
       logger.info 'tax amount'
       logger.debug @rtn_tax
-
+      
       unless @rtn_tax == "0"
         @rtn_tax["TaxLines"].each do |tax_line|
           if !tax_line["LineNo"].include? "-"
@@ -64,6 +64,18 @@ Spree::Order.class_eval do
               adjustment.mandatory = true
               adjustment.eligible = true
               adjustment.amount = tax_line["TaxCalculated"].to_f
+              adjustment.order = self
+              adjustment.state = "closed"
+            end
+          elsif tax_line["LineNo"].include? "-DSFR"
+            delivery_surcharge = Spree::Adjustment.find(tax_line["LineNo"].split("-").first)
+            line_item = delivery_surcharge.adjustable
+            line_item.adjustments.create do |adjustment|
+              adjustment.source = avalara_transaction
+              adjustment.label = "Delivery Surcharge Tax (#{line_item.sku})"
+              adjustment.mandatory = true
+              adjustment.eligible = true
+              adjustment.amount = tax_line["TaxCalculated"]
               adjustment.order = self
               adjustment.state = "closed"
             end
@@ -112,6 +124,18 @@ Spree::Order.class_eval do
               adjustment.mandatory = true
               adjustment.eligible = true
               adjustment.amount = tax_line["TaxCalculated"].to_f
+              adjustment.order = self
+              adjustment.state = "closed"
+            end
+          elsif tax_line["LineNo"].include? "-DSFR"
+            delivery_surcharge = Spree::Adjustment.find(tax_line["LineNo"].split("-").first)
+            line_item = delivery_surcharge.adjustable
+            line_item.adjustments.create do |adjustment|
+              adjustment.source = avalara_transaction
+              adjustment.label = "Delivery Surcharge Tax (#{line_item.sku})"
+              adjustment.mandatory = true
+              adjustment.eligible = true
+              adjustment.amount = tax_line["TaxCalculated"]
               adjustment.order = self
               adjustment.state = "closed"
             end
