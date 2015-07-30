@@ -195,7 +195,7 @@ module Spree
       line[:DestinationCode] = "Dest"
       line[:CustomerUsageType] = myusecode.try(:use_code)
       line[:Description] = "Shipping Charge"
-      line[:TaxCode] = shipment.shipping_method.tax_code || "FR000000"
+      line[:TaxCode] = shipment.shipping_method.tax_code || "DBFR00000"
 
       AVALARA_TRANSACTION_LOGGER.debug line.to_xml
       return line
@@ -211,7 +211,7 @@ module Spree
       line[:DestinationCode] = "Dest"
       line[:CustomerUsageType] = myusecode.try(:use_code)
       line[:Description] = "Delivery Surcharge"
-      line[:TaxCode] = "FR000000"
+      line[:TaxCode] = "DBFR00000"
 
       AVALARA_TRANSACTION_LOGGER.debug line.to_xml
       return line
@@ -425,6 +425,7 @@ module Spree
         taxoverride[:Reason] = "Adjustment for return"
         taxoverride[:TaxDate] = org_ord_date
         taxoverride[:TaxAmount] = "0"
+
       end
 
       gettaxes = {
