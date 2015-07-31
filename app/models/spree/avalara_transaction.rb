@@ -83,6 +83,79 @@ module Spree
       end
     end
 
+    def post_adjustment_to_avalara(commit=false, adjustment_items=nil, order_details=nil, doc_code=nil, org_ord_date=nil, invoice_detail=nil)
+      AVALARA_TRANSACTION_LOGGER.info("post order to avalara")
+      address_validator = AddressSvc.new
+      tax_line_items = Array.new
+      addresses = Array.new
+
+      line = Hash.new
+
+      origin = JSON.parse(Spree::Config.avatax_origin)
+      
+      line[:LineNo] = adjustment_items[:id]
+      line[:ItemCode] = adjustment_items[:sku]
+      line[:Qty] = adjustment_items[:qty]
+      line[:Amount] = adjustment_items[:amount]
+      line[:OriginCode] = "Orig"
+      line[:DestinationCode] = "Dest"
+
+      if myusecode
+        line[:CustomerUsageType] = myusecode.try(:use_code)
+      end
+
+
+      response = address_validator.validate(order_details.ship_address)
+
+      if response != nil
+        if response["ResultCode"] == "Success"
+          AVALARA_TRANSACTION_LOGGER.info("Address Validation Success")
+        else
+          AVALARA_TRANSACTION_LOGGER.info("Address Validation Failed")
+        end
+      end
+      addresses<<order_shipping_address
+      addresses<<origin_address
+
+      tax_line_items << line
+
+      gettaxes = {
+        :CustomerCode => order_details.user ? order_details.user.id : "Guest",
+        :DocDate => org_ord_date ? org_ord_date : Date.current.to_formatted_s(:db),
+
+        :CompanyCode => Spree::Config.avatax_company_code,
+        :CustomerUsageType => myusecode.try(:use_code),
+        :ExemptionNo => order_details.user.try(:exemption_number),
+        :Client =>  AVATAX_CLIENT_VERSION || "SpreeExtV2.3",
+        :DocCode => doc_code ? doc_code : order_details.number,
+
+        :Discount => order_details.all_adjustments.where(source_type: "Spree::PromotionAction").any? ? order_details.all_adjustments.where(source_type: "Spree::PromotionAction").pluck(:amount).reduce(&:+).to_f.abs : 0,
+
+        :ReferenceCode => order_details.number,
+        :DetailLevel => "Tax",
+        :Commit => commit,
+        :DocType => invoice_detail ? invoice_detail : "SalesInvoice",
+        :Addresses => addresses,
+        :Lines => tax_line_items
+      }
+
+      taxoverride = Hash.new
+      taxoverride[:TaxOverrideType] = "TaxDate"
+      taxoverride[:Reason] = "Adjustment for addition/removal of item"
+      taxoverride[:TaxDate] = org_ord_date
+      taxoverride[:TaxAmount] = "0"
+      
+      unless taxoverride.empty?
+        gettaxes[:TaxOverride] = taxoverride
+      end
+
+      AVALARA_TRANSACTION_LOGGER.debug gettaxes
+
+      mytax = TaxSvc.new
+
+      getTaxResult = mytax.get_tax(gettaxes)
+    
+    end
 
     private
 
@@ -195,7 +268,7 @@ module Spree
       line[:DestinationCode] = "Dest"
       line[:CustomerUsageType] = myusecode.try(:use_code)
       line[:Description] = "Shipping Charge"
-      line[:TaxCode] = shipment.shipping_method.tax_code || "DBFR00000"
+      line[:TaxCode] = "DBFR00000"
 
       AVALARA_TRANSACTION_LOGGER.debug line.to_xml
       return line
