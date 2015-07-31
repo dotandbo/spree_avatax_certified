@@ -103,7 +103,7 @@ module Spree
       if myusecode
         line[:CustomerUsageType] = myusecode.try(:use_code)
       end
-
+      tax_line_items << line
 
       response = address_validator.validate(order_details.ship_address)
 
@@ -117,7 +117,37 @@ module Spree
       addresses<<order_shipping_address
       addresses<<origin_address
 
-      tax_line_items << line
+
+
+      if surcharge = adjustment_items[:delivery_surcharge]
+
+        line = Hash.new
+        line[:LineNo] = "#{surcharge.id}-DSFR"
+        line[:ItemCode] = "Delivery Surcharge #{surcharge.adjustable.sku}"
+        line[:Qty] = 1
+        line[:Amount] = adjustment_items[:surcharge_amount].to_f
+        line[:OriginCode] = "Orig"
+        line[:DestinationCode] = "Dest"
+        line[:CustomerUsageType] = myusecode.try(:use_code)
+        line[:Description] = "Delivery Surcharge"
+        line[:TaxCode] = "DBFR00000"
+        tax_line_items << line
+      end
+
+
+      if shipment_difference = adjustment_items[:shipment_difference]
+        line = Hash.new
+        line[:LineNo] = "SHIP-ADJ-FR"
+        line[:ItemCode] = "Shipping"
+        line[:Qty] = 1
+        line[:Amount] = shipment_difference.to_f
+        line[:OriginCode] = "Orig"
+        line[:DestinationCode] = "Dest"
+        line[:CustomerUsageType] = myusecode.try(:use_code)
+        line[:Description] = "Shipping Charge Adjustment"
+        line[:TaxCode] = "DBFR00000"
+        tax_line_items << line
+      end
 
       gettaxes = {
         :CustomerCode => order_details.user ? order_details.user.id : "Guest",
