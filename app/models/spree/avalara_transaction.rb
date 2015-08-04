@@ -117,13 +117,11 @@ module Spree
       addresses<<order_shipping_address
       addresses<<origin_address
 
-
-
-      if surcharge = adjustment_items[:delivery_surcharge]
+      if adjustment_items[:surcharge_amount] && adjustment_items[:surcharge_amount] != 0
 
         line = Hash.new
-        line[:LineNo] = "#{surcharge.id}-DSFR"
-        line[:ItemCode] = "Delivery Surcharge #{surcharge.adjustable.sku}"
+        line[:LineNo] = "#{adjustment_items[:sku]}-DSFR"
+        line[:ItemCode] = "Delivery Surcharge #{adjustment_items[:sku]}"
         line[:Qty] = 1
         line[:Amount] = adjustment_items[:surcharge_amount].to_f
         line[:OriginCode] = "Orig"
@@ -146,6 +144,20 @@ module Spree
         line[:CustomerUsageType] = myusecode.try(:use_code)
         line[:Description] = "Shipping Charge Adjustment"
         line[:TaxCode] = "DBFR00000"
+        tax_line_items << line
+      end
+
+      if adjustment_items[:white_glove]
+        line = Hash.new
+        line[:LineNo] = "#{adjustment_items[:sku]}-WGFR"
+        line[:ItemCode] = "White Glove #{adjustment_items[:sku]}"
+        line[:Qty] = 1
+        line[:Amount] = -99
+        line[:OriginCode] = "Orig"
+        line[:DestinationCode] = "Dest"
+        line[:CustomerUsageType] = myusecode.try(:use_code)
+        line[:Description] = "White Glove"
+        line[:TaxCode] = "P0000000"
         tax_line_items << line
       end
 
@@ -306,7 +318,7 @@ module Spree
 
     def delivery_surcharge_line(surcharge_adjustment)
       line = Hash.new
-      line[:LineNo] = "#{surcharge_adjustment.id}-DSFR"
+      line[:LineNo] = "#{surcharge_adjustment.adjustable.sku}-DSFR"
       line[:ItemCode] = "Delivery Surcharge #{surcharge_adjustment.adjustable.sku}"
       line[:Qty] = 1
       line[:Amount] = surcharge_adjustment.amount.to_f
@@ -315,6 +327,22 @@ module Spree
       line[:CustomerUsageType] = myusecode.try(:use_code)
       line[:Description] = "Delivery Surcharge"
       line[:TaxCode] = "DBFR00000"
+
+      AVALARA_TRANSACTION_LOGGER.debug line.to_xml
+      return line
+    end
+
+    def white_glove_line(wg_adjustment)
+      line = Hash.new
+      line[:LineNo] = "#{wg_adjustment.id}-WGFR"
+      line[:ItemCode] = "White Glove #{wg_adjustment.adjustable.sku}"
+      line[:Qty] = 1
+      line[:Amount] = wg_adjustment.amount.to_f
+      line[:OriginCode] = "Orig"
+      line[:DestinationCode] = "Dest"
+      line[:CustomerUsageType] = myusecode.try(:use_code)
+      line[:Description] = "White Glove"
+      line[:TaxCode] = "P0000000"
 
       AVALARA_TRANSACTION_LOGGER.debug line.to_xml
       return line
@@ -473,6 +501,10 @@ module Spree
 
           order_details.all_adjustments.delivery_surcharge.each do |surcharge_adjustment|
             tax_line_items<<delivery_surcharge_line(surcharge_adjustment)
+          end
+
+          order_details.all_adjustments.white_glove.each do |wg_adjustment|
+            tax_line_items<<white_glove_line(wg_adjustment)
           end
 
           # order_details.all_adjustments.promotion.each do |adj|
