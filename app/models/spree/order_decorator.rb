@@ -35,7 +35,7 @@ Spree::Order.class_eval do
 
     begin
       create_avalara_transaction
-      self.all_adjustments.avalara_tax.destroy_all
+      self.all_adjustments.tax.destroy_all
       self.line_items.reload
 
       @rtn_tax = self.avalara_transaction.commit_avatax(line_items, self, self.number.to_s, Date.today.strftime("%F"), "SalesInvoice")
@@ -96,7 +96,7 @@ Spree::Order.class_eval do
 
     begin
       create_avalara_transaction
-      self.all_adjustments.avalara_tax.destroy_all
+      self.all_adjustments.tax.destroy_all
       self.line_items.reload
       @rtn_tax = self.avalara_transaction.commit_avatax_final(line_items, self, self.number.to_s, Date.today.strftime("%F"), "SalesInvoice")
 
