@@ -318,7 +318,7 @@ module Spree
 
     def delivery_surcharge_line(surcharge_adjustment)
       line = Hash.new
-      line[:LineNo] = "#{surcharge_adjustment.adjustable.sku}-DSFR"
+      line[:LineNo] = "#{surcharge_adjustment.id}-DSFR"
       line[:ItemCode] = "Delivery Surcharge #{surcharge_adjustment.adjustable.sku}"
       line[:Qty] = 1
       line[:Amount] = surcharge_adjustment.amount.to_f
