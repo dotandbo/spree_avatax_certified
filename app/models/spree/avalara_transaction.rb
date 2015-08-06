@@ -583,6 +583,11 @@ module Spree
         :Lines => tax_line_items
       }
 
+      if order_details.completed_at
+        gettaxes[:Commit] = false
+        gettaxes[:DocCode] = "content-updater"
+      end
+
       unless taxoverride.empty?
         gettaxes[:TaxOverride] = taxoverride
       end
