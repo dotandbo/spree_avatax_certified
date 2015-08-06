@@ -582,8 +582,8 @@ module Spree
         :Addresses => addresses,
         :Lines => tax_line_items
       }
-
-      if order_details.completed_at
+      
+      if order_details.completed_at && order_details.state != "returned"
         gettaxes[:Commit] = false
         gettaxes[:DocCode] = "content-updater"
       end
