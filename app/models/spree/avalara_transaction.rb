@@ -514,6 +514,7 @@ module Spree
 
         order_details.return_authorizations.each do |return_auth|
           next if return_auth.state == 'received'
+          
           line = Hash.new
           i += 1
           line[:LineNo] = "#{i}-RA"
@@ -556,6 +557,22 @@ module Spree
       taxoverride = Hash.new
 
       if invoice_detail == "ReturnInvoice" || invoice_detail == "ReturnOrder"
+
+        if rma_shipping_adj = order_details.adjustments.where(originator_type: "Spree::ShippingMethod").last
+
+          line = Hash.new
+          line[:LineNo] = "SHIP-ADJ-FR"
+          line[:ItemCode] = "RMA Shipping Adjustment"
+          line[:Qty] = 1
+          line[:Amount] = rma_shipping_adj.amount.to_f
+          line[:OriginCode] = "Orig"
+          line[:DestinationCode] = "Dest"
+          line[:CustomerUsageType] = myusecode.try(:use_code)
+          line[:Description] = "RMA Shipping Adjustment"
+          line[:TaxCode] = "DBFR00000"
+          tax_line_items << line
+        end
+
         taxoverride[:TaxOverrideType] = "TaxDate"
         taxoverride[:Reason] = "Adjustment for return"
         taxoverride[:TaxDate] = org_ord_date
@@ -583,7 +600,7 @@ module Spree
         :Lines => tax_line_items
       }
       
-      if order_details.completed_at && order_details.state != "returned"
+      if order_details.completed_at && !(order_details.state == "returned" || order_details.state == "awaiting_return")
         gettaxes[:Commit] = false
         gettaxes[:DocCode] = "content-updater"
       end
