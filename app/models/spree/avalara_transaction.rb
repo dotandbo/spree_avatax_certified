@@ -513,7 +513,7 @@ module Spree
         end
 
         order_details.return_authorizations.each do |return_auth|
-
+          next if return_auth.state == 'received'
           line = Hash.new
           i += 1
           line[:LineNo] = "#{i}-RA"
