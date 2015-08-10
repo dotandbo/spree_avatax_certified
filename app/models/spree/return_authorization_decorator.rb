@@ -6,9 +6,9 @@ Spree::ReturnAuthorization.class_eval do
 
   has_one :avalara_transaction, dependent: :destroy
   after_save :assign_avalara_transaction, on: :create
-  self.state_machine.before_transition :to => :received,
-                                      :do => :avalara_capture_finalize,
-                                      :if => :avalara_eligible
+  # self.state_machine.before_transition :to => :received,
+  #                                     :do => :avalara_capture_finalize,
+  #                                     :if => :avalara_eligible
 
   def avalara_eligible
     Spree::Config.avatax_iseligible
@@ -39,8 +39,8 @@ Spree::ReturnAuthorization.class_eval do
     RETURN_AUTHORIZATION_LOGGER.debug 'avalara capture return_authorization avalara_capture_finalize'
 
     begin
-
-      @rtn_tax = self.avalara_transaction.commit_avatax_final(order.line_items, order, order.number.to_s + ":" + self.id.to_s, order.completed_at.strftime("%F"), "ReturnInvoice")
+      avalara_lookup
+      @rtn_tax = self.reload.avalara_transaction.commit_avatax_final(order.line_items, order, order.number.to_s + ":" + self.id.to_s, order.completed_at.strftime("%F"), "ReturnInvoice")
 
       RETURN_AUTHORIZATION_LOGGER.info 'tax amount'
       RETURN_AUTHORIZATION_LOGGER.debug @rtn_tax

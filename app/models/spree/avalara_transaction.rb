@@ -512,9 +512,9 @@ module Spree
           # end
         end
 
-        order_details.return_authorizations.each do |return_auth|
-          next if return_auth.state == 'received'
-          
+
+        return_auth = order_details.return_authorizations.last
+        if return_auth
           line = Hash.new
           i += 1
           line[:LineNo] = "#{i}-RA"
@@ -541,6 +541,7 @@ module Spree
           tax_line_items<<line
         end
       end
+
 
       response = address_validator.validate(order_details.ship_address)
 
