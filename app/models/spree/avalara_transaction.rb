@@ -559,7 +559,7 @@ module Spree
 
       if invoice_detail == "ReturnInvoice" || invoice_detail == "ReturnOrder"
 
-        if rma_shipping_adj = order_details.adjustments.where(originator_type: "Spree::ShippingMethod").last
+        if rma_shipping_adj = order_details.adjustments.where('originator_type =? AND label LIKE ?', "Spree::ShippingMethod", "Return Shipping%").last
 
           line = Hash.new
           line[:LineNo] = "SHIP-ADJ-FR"
@@ -571,6 +571,20 @@ module Spree
           line[:CustomerUsageType] = myusecode.try(:use_code)
           line[:Description] = "RMA Shipping Adjustment"
           line[:TaxCode] = "DBFR00000"
+          tax_line_items << line
+        end
+
+        if rma_wg_adj = order_details.adjustments.where('originator_type =? AND label LIKE ?', "Spree::ShippingMethod", "Return White%").last
+          line = Hash.new
+          line[:LineNo] = "WG-ADJ-FR"
+          line[:ItemCode] = "RMA WG Adjustment"
+          line[:Qty] = 1
+          line[:Amount] = rma_wg_adj.amount.to_f
+          line[:OriginCode] = "Orig"
+          line[:DestinationCode] = "Dest"
+          line[:CustomerUsageType] = myusecode.try(:use_code)
+          line[:Description] = "RMA WG Adjustment"
+          line[:TaxCode] = "P0000000"
           tax_line_items << line
         end
 
