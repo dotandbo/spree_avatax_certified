@@ -27,6 +27,15 @@ module Spree
       post_order_to_avalara(false, items, order_details, doc_id, org_ord_date, invoice_dt)
     end
 
+    def commit_avatax_final_migration(items, order_details,doc_id=nil, org_ord_date=nil, invoice_dt=nil)
+      if document_committing_enabled?
+        post_order_to_avalara(true, items, order_details, doc_id, org_ord_date,invoice_dt, migration=true)
+      else
+        AVALARA_TRANSACTION_LOGGER.debug "avalara document committing disabled"
+        "avalara document committing disabled"
+      end
+    end
+
     def commit_avatax_final(items, order_details,doc_id=nil, org_ord_date=nil, invoice_dt=nil)
       if document_committing_enabled?
         post_order_to_avalara(true, items, order_details, doc_id, org_ord_date,invoice_dt)
@@ -421,7 +430,7 @@ module Spree
       }
     end
 
-    def post_order_to_avalara(commit=false, orderitems=nil, order_details=nil, doc_code=nil, org_ord_date=nil, invoice_detail=nil)
+    def post_order_to_avalara(commit=false, orderitems=nil, order_details=nil, doc_code=nil, org_ord_date=nil, invoice_detail=nil, migration=false)
       AVALARA_TRANSACTION_LOGGER.info("post order to avalara")
       address_validator = AddressSvc.new
       tax_line_items = Array.new
@@ -644,9 +653,17 @@ module Spree
         :Lines => tax_line_items
       }
       
-      if order_details.completed_at && !(order_details.state == "returned" || order_details.state == "awaiting_return")
+      if !migration && order_details.completed_at && !(order_details.state == "returned" || order_details.state == "awaiting_return")
         gettaxes[:Commit] = false
         gettaxes[:DocCode] = "content-updater"
+      end
+
+      if migration
+        taxoverride = Hash.new
+        taxoverride[:TaxOverrideType] = "TaxDate"
+        taxoverride[:Reason] = "Migration"
+        taxoverride[:TaxDate] = order_details.completed_at.strftime("%F")
+        taxoverride[:TaxAmount] = "0"
       end
 
       unless taxoverride.empty?

@@ -104,6 +104,11 @@ Spree::Order.class_eval do
     end
   end
 
+  def avalara_migrate_finalize
+    create_avalara_transaction
+    self.avalara_transaction.commit_avatax_final_migration(line_items, self, self.number.to_s, completed_at.strftime("%F"), "SalesInvoice")
+  end
+
   def avalara_capture_finalize
     logger.debug 'avalara capture finalize'
 
