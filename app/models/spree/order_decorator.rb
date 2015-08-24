@@ -168,8 +168,9 @@ Spree::Order.class_eval do
           end
         end
 
-        #Make sure li adjustments get updated so orders don't fall into weird state
+        #Make sure adjustments get updated so orders don't fall into weird state
         line_items.map{ |li| Spree::ItemAdjustments.new(li).update }
+        shipments.map{ |shipment| Spree::ItemAdjustments.new(shipment).update}
 
         self.reload.update!
         all_adjustments.avalara_tax
