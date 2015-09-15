@@ -644,10 +644,10 @@ module Spree
         :Lines => tax_line_items
       }
       
-      if order_details.completed_at && !(order_details.state == "returned" || order_details.state == "awaiting_return")
-        gettaxes[:Commit] = false
-        gettaxes[:DocCode] = "content-updater"
-      end
+      # if order_details.completed_at && !(order_details.state == "returned" || order_details.state == "awaiting_return")
+      #   gettaxes[:Commit] = false
+      #   gettaxes[:DocCode] = "content-updater"
+      # end
 
       unless taxoverride.empty?
         gettaxes[:TaxOverride] = taxoverride
