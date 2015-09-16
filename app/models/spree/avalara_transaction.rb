@@ -148,6 +148,22 @@ module Spree
       return line
     end
 
+    def delivery_surcharge_line(surcharge_adjustment)
+      line = Hash.new
+      line[:LineNo] = "#{surcharge_adjustment.id}-DSFR"
+      line[:ItemCode] = "Delivery Surcharge #{surcharge_adjustment.adjustable.sku}"
+      line[:Qty] = 1
+      line[:Amount] = surcharge_adjustment.amount.to_f
+      line[:OriginCode] = "Orig"
+      line[:DestinationCode] = "Dest"
+      line[:CustomerUsageType] = myusecode.try(:use_code)
+      line[:Description] = "Delivery Surcharge"
+      line[:TaxCode] = "FR000000"
+
+      AVALARA_TRANSACTION_LOGGER.debug line.to_xml
+      return line
+    end
+
     def return_authorization_line(return_authorization)
       line = {}
       line[:LineNo] = "#{return_authorization.id}-RA"
@@ -290,6 +306,10 @@ module Spree
             if shipment.tax_category
               tax_line_items<<shipment_line(shipment)
             end
+          end
+
+          order_details.all_adjustments.delivery_surcharge.each do |surcharge_adjustment|
+            tax_line_items<<delivery_surcharge_line(surcharge_adjustment)
           end
         end
 

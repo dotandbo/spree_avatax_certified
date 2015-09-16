@@ -78,7 +78,7 @@ module Spree
       return 0 if !self.calculable.zone.include?(item_address)
 
       avalara_response['TaxLines'].each do |line|
-        if line['LineNo'] == "#{item.id}-#{item.avatax_line_code}"
+        if line['LineNo'] == "#{item.id}-#{item.avatax_line_code}" || line['LineNo'].include? "-DSFR"
           return line['TaxCalculated'].to_f
         end
       end
