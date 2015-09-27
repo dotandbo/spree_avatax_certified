@@ -137,28 +137,12 @@ module Spree
       line[:LineNo] = "#{shipment.id}-FR"
       line[:ItemCode] = "Shipping"
       line[:Qty] = 1
-      line[:Amount] = shipment.cost.to_f
+      line[:Amount] = (shipment.cost + shipment.order.delivery_surcharge_total).to_f
       line[:OriginCode] = "Orig"
       line[:DestinationCode] = "Dest"
       line[:CustomerUsageType] = myusecode.try(:use_code)
       line[:Description] = "Shipping Charge"
-      line[:TaxCode] = shipment.tax_category.try(:description) || "FR000000"
-
-      AVALARA_TRANSACTION_LOGGER.debug line.to_xml
-      return line
-    end
-
-    def delivery_surcharge_line(surcharge_adjustment)
-      line = Hash.new
-      line[:LineNo] = "#{surcharge_adjustment.id}-DSFR"
-      line[:ItemCode] = "Delivery Surcharge #{surcharge_adjustment.adjustable.sku}"
-      line[:Qty] = 1
-      line[:Amount] = surcharge_adjustment.amount.to_f
-      line[:OriginCode] = "Orig"
-      line[:DestinationCode] = "Dest"
-      line[:CustomerUsageType] = myusecode.try(:use_code)
-      line[:Description] = "Delivery Surcharge"
-      line[:TaxCode] = "FR000000"
+      line[:TaxCode] = "DBFR00000"
 
       AVALARA_TRANSACTION_LOGGER.debug line.to_xml
       return line
@@ -249,7 +233,7 @@ module Spree
             line[:LineNo] = "#{line_item.id}-LI"
             line[:ItemCode] = line_item.variant.sku
             line[:Qty] = line_item.quantity
-            line[:Amount] = line_item.amount.to_f
+            line[:Amount] = (line_item.amount + line_item.white_glove_total).to_f
             line[:OriginCode] = "Orig"
             line[:DestinationCode] = "Dest"
 
@@ -307,10 +291,6 @@ module Spree
               tax_line_items<<shipment_line(shipment)
             end
           end
-
-          order_details.all_adjustments.delivery_surcharge.each do |surcharge_adjustment|
-            tax_line_items<<delivery_surcharge_line(surcharge_adjustment)
-          end
         end
 
         order_details.return_authorizations.each do |return_auth|
@@ -367,7 +347,6 @@ module Spree
       AVALARA_TRANSACTION_LOGGER.debug gettaxes
 
       mytax = TaxSvc.new
-
       getTaxResult = mytax.get_tax(gettaxes)
 
       AVALARA_TRANSACTION_LOGGER.debug getTaxResult
