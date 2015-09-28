@@ -43,6 +43,122 @@ module Spree
       end
     end
 
+    def post_adjustment_to_avalara(commit=false, adjustment_items=nil, order_details=nil, doc_code=nil, org_ord_date=nil, invoice_detail=nil)
+      AVALARA_TRANSACTION_LOGGER.info("post order to avalara")
+      address_validator = AddressSvc.new
+      tax_line_items = Array.new
+      addresses = Array.new
+
+      line = Hash.new
+
+      origin = JSON.parse(Spree::Config.avatax_origin)
+      
+      line[:LineNo] = adjustment_items[:id]
+      line[:ItemCode] = adjustment_items[:sku]
+      line[:Qty] = adjustment_items[:qty]
+      line[:Amount] = adjustment_items[:amount]
+      line[:OriginCode] = "Orig"
+      line[:DestinationCode] = "Dest"
+
+      if myusecode
+        line[:CustomerUsageType] = myusecode.try(:use_code)
+      end
+      tax_line_items << line
+
+      response = address_validator.validate(order_details.ship_address)
+
+      if response != nil
+        if response["ResultCode"] == "Success"
+          AVALARA_TRANSACTION_LOGGER.info("Address Validation Success")
+        else
+          AVALARA_TRANSACTION_LOGGER.info("Address Validation Failed")
+        end
+      end
+      addresses<<order_shipping_address
+      addresses<<origin_address
+
+      if adjustment_items[:surcharge_amount] && adjustment_items[:surcharge_amount] != 0
+
+        line = Hash.new
+        line[:LineNo] = "#{adjustment_items[:sku]}-DSFR"
+        line[:ItemCode] = "Delivery Surcharge #{adjustment_items[:sku]}"
+        line[:Qty] = 1
+        line[:Amount] = adjustment_items[:surcharge_amount].to_f
+        line[:OriginCode] = "Orig"
+        line[:DestinationCode] = "Dest"
+        line[:CustomerUsageType] = myusecode.try(:use_code)
+        line[:Description] = "Delivery Surcharge"
+        line[:TaxCode] = "DBFR00000"
+        tax_line_items << line
+      end
+
+
+      if shipment_difference = adjustment_items[:shipment_difference]
+        line = Hash.new
+        line[:LineNo] = "SHIP-ADJ-FR"
+        line[:ItemCode] = "Shipping"
+        line[:Qty] = 1
+        line[:Amount] = shipment_difference.to_f
+        line[:OriginCode] = "Orig"
+        line[:DestinationCode] = "Dest"
+        line[:CustomerUsageType] = myusecode.try(:use_code)
+        line[:Description] = "Shipping Charge Adjustment"
+        line[:TaxCode] = "DBFR00000"
+        tax_line_items << line
+      end
+
+      if adjustment_items[:white_glove]
+        line = Hash.new
+        line[:LineNo] = "#{adjustment_items[:sku]}-WGFR"
+        line[:ItemCode] = "White Glove #{adjustment_items[:sku]}"
+        line[:Qty] = 1
+        line[:Amount] = -99
+        line[:OriginCode] = "Orig"
+        line[:DestinationCode] = "Dest"
+        line[:CustomerUsageType] = myusecode.try(:use_code)
+        line[:Description] = "White Glove"
+        line[:TaxCode] = "P0000000"
+        tax_line_items << line
+      end
+
+      gettaxes = {
+        :CustomerCode => order_details.user ? order_details.user.id : "Guest",
+        :DocDate => org_ord_date ? org_ord_date : Date.current.to_formatted_s(:db),
+
+        :CompanyCode => Spree::Config.avatax_company_code,
+        :CustomerUsageType => myusecode.try(:use_code),
+        :ExemptionNo => order_details.user.try(:exemption_number),
+        :Client =>  AVATAX_CLIENT_VERSION || "SpreeExtV2.3",
+        :DocCode => doc_code ? doc_code : order_details.number,
+
+        :Discount => order_details.all_adjustments.where(source_type: "Spree::PromotionAction").any? ? order_details.all_adjustments.where(source_type: "Spree::PromotionAction").pluck(:amount).reduce(&:+).to_f.abs : 0,
+
+        :ReferenceCode => order_details.number,
+        :DetailLevel => "Tax",
+        :Commit => commit,
+        :DocType => invoice_detail ? invoice_detail : "SalesInvoice",
+        :Addresses => addresses,
+        :Lines => tax_line_items
+      }
+
+      taxoverride = Hash.new
+      taxoverride[:TaxOverrideType] = "TaxDate"
+      taxoverride[:Reason] = "Adjustment for addition/removal of item"
+      taxoverride[:TaxDate] = org_ord_date
+      taxoverride[:TaxAmount] = "0"
+      
+      unless taxoverride.empty?
+        gettaxes[:TaxOverride] = taxoverride
+      end
+
+      AVALARA_TRANSACTION_LOGGER.debug gettaxes
+
+      mytax = TaxSvc.new
+
+      getTaxResult = mytax.get_tax(gettaxes)
+    
+    end
+
     private
 
     def get_shipped_from_address(item_id)
@@ -137,7 +253,7 @@ module Spree
       line[:LineNo] = "#{shipment.id}-FR"
       line[:ItemCode] = "Shipping"
       line[:Qty] = 1
-      line[:Amount] = (shipment.cost + shipment.order.delivery_surcharge_total).to_f
+      line[:Amount] = shipment.cost.to_f
       line[:OriginCode] = "Orig"
       line[:DestinationCode] = "Dest"
       line[:CustomerUsageType] = myusecode.try(:use_code)
@@ -236,6 +352,9 @@ module Spree
             line[:Amount] = (line_item.amount + line_item.white_glove_total).to_f
             line[:OriginCode] = "Orig"
             line[:DestinationCode] = "Dest"
+
+            # Add delivery_surcharge tax to line_item tax iff order is shipment_taxable (e.g. TN)
+            line[:Amount] += line_item.total_delivery_surcharge.to_f if order.shipment_taxable?
 
             AVALARA_TRANSACTION_LOGGER.info('about to check for User')
             AVALARA_TRANSACTION_LOGGER.debug myusecode
