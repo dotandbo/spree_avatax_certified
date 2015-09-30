@@ -411,10 +411,39 @@ module Spree
             end
           end
         end
+       
 
         order_details.return_authorizations.each do |return_auth|
           next if return_auth.state == 'received'
           tax_line_items<<return_authorization_line(return_auth)
+          
+          if rma_shipping_adj = order_details.adjustments.where(originator_type: "Spree::ShippingMethod").last
+            line = Hash.new
+            line[:LineNo] = "SHIP-ADJ-FR"
+            line[:ItemCode] = "RMA Shipping Adjustment"
+            line[:Qty] = 1
+            line[:Amount] = rma_shipping_adj.amount.to_f
+            line[:OriginCode] = "Orig"
+            line[:DestinationCode] = "Dest"
+            line[:CustomerUsageType] = myusecode.try(:use_code)
+            line[:Description] = "RMA Shipping Adjustment"
+            line[:TaxCode] = "DBFR00000"
+            tax_line_items << line
+          end
+
+        if rma_surcharge_adj = order_details.adjustments.where('originator_type =? AND label LIKE ?', "Spree::ShippingMethod", "Return Surcharge%").last
+          line = Hash.new
+          line[:LineNo] = "WG-ADJ-FR"
+          line[:ItemCode] = "RMA Delivery Surcharge Adjustment"
+          line[:Qty] = 1
+          line[:Amount] = rma_surcharge_adj.amount.to_f
+          line[:OriginCode] = "Orig"
+          line[:DestinationCode] = "Dest"
+          line[:CustomerUsageType] = myusecode.try(:use_code)
+          line[:Description] = "RMA Delivery Surcharge Adjustment"
+          line[:TaxCode] = "DBFR00000"
+          tax_line_items << line
+        end
         end
       end
 
@@ -459,7 +488,7 @@ module Spree
         :Lines => tax_line_items
       }
 
-      if order_details.completed_at && order_details.state != "returned"
+      if order_details.completed_at && !(order_details.state == "returned" || order_details.state == "awaiting_return")
         gettaxes[:Commit] = false
         gettaxes[:DocCode] = "content-updater"
       end
