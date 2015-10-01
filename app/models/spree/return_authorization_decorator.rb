@@ -39,7 +39,6 @@ Spree::ReturnAuthorization.class_eval do
     RETURN_AUTHORIZATION_LOGGER.debug 'avalara capture return_authorization avalara_capture_finalize'
 
     begin
-      binding.pry
       avalara_lookup
       @rtn_tax = self.reload.avalara_transaction.commit_avatax_final(order.line_items, order, order.number.to_s + ":" + self.id.to_s, order.completed_at.strftime("%F"), "ReturnInvoice")
 
