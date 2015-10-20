@@ -431,19 +431,47 @@ module Spree
             tax_line_items << line
           end
 
-        if rma_surcharge_adj = order_details.adjustments.where('originator_type =? AND label LIKE ?', "Spree::ShippingMethod", "Return Surcharge%").last
-          line = Hash.new
-          line[:LineNo] = "WG-ADJ-FR"
-          line[:ItemCode] = "RMA Delivery Surcharge Adjustment"
-          line[:Qty] = 1
-          line[:Amount] = rma_surcharge_adj.amount.to_f
-          line[:OriginCode] = "Orig"
-          line[:DestinationCode] = "Dest"
-          line[:CustomerUsageType] = myusecode.try(:use_code)
-          line[:Description] = "RMA Delivery Surcharge Adjustment"
-          line[:TaxCode] = "DBFR00000"
-          tax_line_items << line
-        end
+          if rma_surcharge_adj = order_details.adjustments.where('originator_type =? AND label LIKE ?', "Spree::ShippingMethod", "Return Surcharge%").last
+            line = Hash.new
+            line[:LineNo] = "SUR-ADJ-FR"
+            line[:ItemCode] = "RMA Delivery Surcharge Adjustment"
+            line[:Qty] = 1
+            line[:Amount] = rma_surcharge_adj.amount.to_f
+            line[:OriginCode] = "Orig"
+            line[:DestinationCode] = "Dest"
+            line[:CustomerUsageType] = myusecode.try(:use_code)
+            line[:Description] = "RMA Delivery Surcharge Adjustment"
+            line[:TaxCode] = "DBFR00000"
+            tax_line_items << line
+          end
+          
+          if rma_wg_adj = order_details.adjustments.where('originator_type =? AND label LIKE ?', "Spree::ShippingMethod", "Return White%").last
+            line = Hash.new
+            line[:LineNo] = "WG-ADJ-FR"
+            line[:ItemCode] = "RMA WhiteGlove Adjustment"
+            line[:Qty] = 1
+            line[:Amount] = rma_wg_adj.amount.to_f
+            line[:OriginCode] = "Orig"
+            line[:DestinationCode] = "Dest"
+            line[:CustomerUsageType] = myusecode.try(:use_code)
+            line[:Description] = "RMA WhitGlove Adjustment"
+            line[:TaxCode] = "P0000000"
+            tax_line_items << line
+          end
+          
+          if rma_promotion_adj = order_details.adjustments.where('label LIKE ?', "Return Promo%").last
+            line = Hash.new
+            line[:LineNo] = "PROMO-ADJ-FR"
+            line[:ItemCode] = "RMA Promo Adjustment"
+            line[:Qty] = 1
+            line[:Amount] = rma_promotion_adj.amount.to_f
+            line[:OriginCode] = "Orig"
+            line[:DestinationCode] = "Dest"
+            line[:CustomerUsageType] = myusecode.try(:use_code)
+            line[:Description] = "RMA Promo Adjustment"
+            line[:TaxCode] = "P0000000"
+            tax_line_items << line
+          end
         end
       end
 
