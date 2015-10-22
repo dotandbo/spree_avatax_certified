@@ -76,6 +76,11 @@ module Spree
       return 0 if item_address.nil?
       return 0 if !self.calculable.zone.include?(item_address)
 
+      if avalara_response['TaxLines'].blank?
+        Rails.logger.error "Avatax response property `TaxLines` null for order #{order.try(:number)} item ID #{item.try(:id)}."
+        return 0
+      end
+
       avalara_response['TaxLines'].each do |line|
         if line['LineNo'] == "#{item.id}-#{item.avatax_line_code}"
           return line['TaxCalculated'].to_f
