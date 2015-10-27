@@ -17,7 +17,13 @@ module Spree
         else
           avalara_response = retrieve_rates_from_cache(item.order)
         end
-
+        
+        # TODO
+        # The root cause of the issue here is that some times 
+        # retrieve_rates_from_cache(item.order) returns nil response,
+        # causing unexpected nil exceptions.
+        # Need to debug and fix retrieve_rates_from_cache(item.order)
+        avalara_response = item.order.avalara_capture if avalara_response.nil?
         tax_for_item(item, avalara_response)
       end
     end
