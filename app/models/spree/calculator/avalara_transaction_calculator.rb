@@ -85,9 +85,9 @@ module Spree
       if avalara_response['TaxLines'].blank?
         msg = "Avatax response property `TaxLines` null for order #{order.try(:number)} item ID #{item.try(:id)}."
         Rails.logger.error msg
-        email_mq = APP_CONFIG['EMAIL_MQ']
+        workflow_mq = APP_CONFIG['WORKFLOW_MQ']
         data = { title: "Null Avatax API Response", content: msg }
-        email_mq.post({ template: 'Alert Notification', to: 'site-alert@dotandbo.com', data: data }.to_json)
+        workflow_mq.post({ email: "site-alert@dotandbo.com", workflowId: "3235", dataFields: data}.to_json)
         return 0
       end
 
