@@ -7,6 +7,10 @@ module Spree
     def compute_order(order)
       raise 'Spree::AvalaraTransaction is designed to calculate taxes at the shipment and line-item levels.'
     end
+    
+    def compute_nil_class(nil_class)
+      logger.error "compute_nil_class should never be called: calculator id: self.try(:id)"
+    end
 
     def compute_shipment_or_line_item(item)
       if rate.included_in_price
@@ -17,7 +21,13 @@ module Spree
         else
           avalara_response = retrieve_rates_from_cache(item.order)
         end
-
+        
+        # TODO
+        # The root cause of the issue here is that some times 
+        # retrieve_rates_from_cache(item.order) returns nil response,
+        # causing unexpected nil exceptions.
+        # Need to debug and fix retrieve_rates_from_cache(item.order)
+        avalara_response = item.order.avalara_capture if avalara_response.nil?
         tax_for_item(item, avalara_response)
       end
     end
@@ -79,9 +89,9 @@ module Spree
       if avalara_response['TaxLines'].blank?
         msg = "Avatax response property `TaxLines` null for order #{order.try(:number)} item ID #{item.try(:id)}."
         Rails.logger.error msg
-        email_mq = APP_CONFIG['EMAIL_MQ']
+        workflow_mq = APP_CONFIG['WORKFLOW_MQ']
         data = { title: "Null Avatax API Response", content: msg }
-        email_mq.post({ template: 'Alert Notification', to: 'site-alert@dotandbo.com', data: data }.to_json)
+        workflow_mq.post({ email: "site-alert@dotandbo.com", workflowId: "3235", dataFields: data}.to_json)
         return 0
       end
 
