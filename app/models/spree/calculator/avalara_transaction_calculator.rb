@@ -7,6 +7,10 @@ module Spree
     def compute_order(order)
       raise 'Spree::AvalaraTransaction is designed to calculate taxes at the shipment and line-item levels.'
     end
+    
+    def compute_nil_class(nil_class)
+      logger.error "compute_nil_class should never be called: calculator id: self.try(:id)"
+    end
 
     def compute_shipment_or_line_item(item)
       if rate.included_in_price
