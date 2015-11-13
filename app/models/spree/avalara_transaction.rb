@@ -24,13 +24,13 @@ module Spree
       post_order_to_avalara(false, order_details.line_items, order_details)
     end
 
-    def commit_avatax(items, order_details, doc_id=nil, org_ord_date=nil, invoice_dt=nil)
-      post_order_to_avalara(false, items, order_details, doc_id, org_ord_date, invoice_dt)
+    def commit_avatax(items, order_details, doc_id=nil, org_ord_date=nil, invoice_dt=nil, rma_id=nil)
+      post_order_to_avalara(false, items, order_details, doc_id, org_ord_date, invoice_dt, rma_id)
     end
 
-    def commit_avatax_final(items, order_details,doc_id=nil, org_ord_date=nil, invoice_dt=nil)
+    def commit_avatax_final(items, order_details,doc_id=nil, org_ord_date=nil, invoice_dt=nil, rma_id=nil)
       if document_committing_enabled?
-        post_order_to_avalara(true, items, order_details, doc_id, org_ord_date,invoice_dt)
+        post_order_to_avalara(true, items, order_details, doc_id, org_ord_date,invoice_dt, rma_id)
       else
         AVALARA_TRANSACTION_LOGGER.debug "avalara document committing disabled"
         "avalara document committing disabled"
@@ -333,7 +333,7 @@ module Spree
       }
     end
 
-    def post_order_to_avalara(commit=false, orderitems=nil, order_details=nil, doc_code=nil, org_ord_date=nil, invoice_detail=nil)
+    def post_order_to_avalara(commit=false, orderitems=nil, order_details=nil, doc_code=nil, org_ord_date=nil, invoice_detail=nil, rma_id=nil)
       AVALARA_TRANSACTION_LOGGER.info("post order to avalara")
       address_validator = AddressSvc.new
       tax_line_items = []
@@ -414,7 +414,7 @@ module Spree
        
 
         order_details.return_authorizations.each do |return_auth|
-          next if return_auth.state == 'received'
+          next if return_auth.state == 'received' || return_auth.id != rma_id
           tax_line_items<<return_authorization_line(return_auth)
           
           if rma_shipping_adj = order_details.adjustments.where(originator_type: "Spree::ShippingMethod").last
