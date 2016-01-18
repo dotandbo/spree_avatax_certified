@@ -81,18 +81,17 @@ module Spree
     def tax_for_item(item, avalara_response)
       order = item.order
       item_address = order.ship_address || order.billing_address
-      
-      return 0 if order.state == %w(address cart)
-      return 0 if item_address.nil?
-      return 0 if !self.calculable.zone.include?(item_address)
+      prev_tax_amount = item.additional_tax_total
 
-      if avalara_response['TaxLines'].blank?
+      return prev_tax_amount if %w(address cart).include?(order.state)
+      return prev_tax_amount if item_address.nil?
+      return prev_tax_amount unless calculable.zone.include?(item_address)
+      return prev_tax_amount if avalara_response[:TotalTax] == '0.00'
+      
+      if avalara_response.nil? || avalara_response['TaxLines'].blank?
         msg = "Avatax response property `TaxLines` null for order #{order.try(:number)} item ID #{item.try(:id)}."
         Rails.logger.error msg
-        #workflow_mq = APP_CONFIG['WORKFLOW_MQ']
-        #data = { title: "Null Avatax API Response", content: msg }
-        #workflow_mq.post({ email: "site-alert@dotandbo.com", workflowId: "3235", dataFields: data}.to_json)
-        return 0
+        return prev_tax_amount 
       end
 
       avalara_response['TaxLines'].each do |line|
