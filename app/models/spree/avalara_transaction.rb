@@ -8,6 +8,7 @@ module Spree
     belongs_to :order
     belongs_to :return_authorization
     validates :order, presence: true
+    #validates :order_id, uniqueness: true
     has_many :adjustments, as: :source
 
     def rnt_tax
@@ -23,13 +24,13 @@ module Spree
       post_order_to_avalara(false, order_details.line_items, order_details)
     end
 
-    def commit_avatax(items, order_details, doc_id=nil, org_ord_date=nil, invoice_dt=nil)
-      post_order_to_avalara(false, items, order_details, doc_id, org_ord_date, invoice_dt)
+    def commit_avatax(items, order_details, doc_id=nil, org_ord_date=nil, invoice_dt=nil, rma_id=nil)
+      post_order_to_avalara(false, items, order_details, doc_id, org_ord_date, invoice_dt, rma_id)
     end
 
-    def commit_avatax_final(items, order_details,doc_id=nil, org_ord_date=nil, invoice_dt=nil)
+    def commit_avatax_final(items, order_details,doc_id=nil, org_ord_date=nil, invoice_dt=nil, rma_id=nil)
       if document_committing_enabled?
-        post_order_to_avalara(true, items, order_details, doc_id, org_ord_date,invoice_dt)
+        post_order_to_avalara(true, items, order_details, doc_id, org_ord_date,invoice_dt, rma_id)
       else
         AVALARA_TRANSACTION_LOGGER.debug "avalara document committing disabled"
         "avalara document committing disabled"
@@ -42,47 +43,121 @@ module Spree
       end
     end
 
-    def update_adjustment(adjustment, source)
-      AVALARA_TRANSACTION_LOGGER.info("update adjustment call")
+    def post_adjustment_to_avalara(commit=false, adjustment_items=nil, order_details=nil, doc_code=nil, org_ord_date=nil, invoice_detail=nil)
+      AVALARA_TRANSACTION_LOGGER.info("post order to avalara")
+      address_validator = AddressSvc.new
+      tax_line_items = Array.new
+      addresses = Array.new
 
-      if adjustment.state != "closed"
-        commit_avatax(order.line_items, order)
-        adjustment.update_column(:amount, rnt_tax)
+      line = Hash.new
+
+      origin = JSON.parse(Spree::Config.avatax_origin)
+      
+      line[:LineNo] = adjustment_items[:id]
+      line[:ItemCode] = adjustment_items[:sku]
+      line[:Qty] = adjustment_items[:qty]
+      line[:Amount] = adjustment_items[:amount]
+      line[:OriginCode] = "Orig"
+      line[:DestinationCode] = "Dest"
+
+      if myusecode
+        line[:CustomerUsageType] = myusecode.try(:use_code)
       end
+      tax_line_items << line
 
-      if order.complete?
-        commit_avatax_final(order.line_items, order)
-        adjustment.update_column(:amount, rnt_tax)
-        adjustment.update_column(:state, "closed")
-      end
+      response = address_validator.validate(order_details.ship_address)
 
-      if order.state == 'canceled'
-        cancel_order_to_avalara("SalesInvoice", "DocVoided", order)
-      end
-
-      if adjustment.state == "closed" && order.adjustments.return_authorization.exists?
-        commit_avatax(order.line_items, order, order.number.to_s + ":" + order.adjustments.return_authorization.first.id.to_s, order.completed_at)
-
-        if rnt_tax != "0.00"
-          adjustment.update_column(:amount, rnt_tax)
-          adjustment.update_column(:state, "closed")
+      if response != nil
+        if response["ResultCode"] == "Success"
+          AVALARA_TRANSACTION_LOGGER.info("Address Validation Success")
+        else
+          AVALARA_TRANSACTION_LOGGER.info("Address Validation Failed")
         end
       end
+      addresses<<order_shipping_address
+      addresses<<origin_address
 
-      if adjustment.state == "closed" && order.adjustments.return_authorization.exists?
-        order.adjustments.return_authorization.each do |adj|
-          if adj.state == "closed" || adj.state == "closed"
-            commit_avatax_final(order.line_items, order, order.number.to_s + ":"  + adj.id.to_s, order.completed_at )
-          end
-        end
+      if adjustment_items[:surcharge_amount] && adjustment_items[:surcharge_amount] != 0
 
-        if rnt_tax != "0.00"
-          adjustment.update_column(:amount, rnt_tax)
-          adjustment.update_column(:state, "closed")
-        end
+        line = Hash.new
+        line[:LineNo] = "#{adjustment_items[:sku]}-DSFR"
+        line[:ItemCode] = "Delivery Surcharge #{adjustment_items[:sku]}"
+        line[:Qty] = 1
+        line[:Amount] = adjustment_items[:surcharge_amount].to_f
+        line[:OriginCode] = "Orig"
+        line[:DestinationCode] = "Dest"
+        line[:CustomerUsageType] = myusecode.try(:use_code)
+        line[:Description] = "Delivery Surcharge"
+        line[:TaxCode] = "DBFR00000"
+        tax_line_items << line
       end
+
+
+      if shipment_difference = adjustment_items[:shipment_difference]
+        line = Hash.new
+        line[:LineNo] = "SHIP-ADJ-FR"
+        line[:ItemCode] = "Shipping"
+        line[:Qty] = 1
+        line[:Amount] = shipment_difference.to_f
+        line[:OriginCode] = "Orig"
+        line[:DestinationCode] = "Dest"
+        line[:CustomerUsageType] = myusecode.try(:use_code)
+        line[:Description] = "Shipping Charge Adjustment"
+        line[:TaxCode] = "DBFR00000"
+        tax_line_items << line
+      end
+
+      if adjustment_items[:white_glove]
+        line = Hash.new
+        line[:LineNo] = "#{adjustment_items[:sku]}-WGFR"
+        line[:ItemCode] = "White Glove #{adjustment_items[:sku]}"
+        line[:Qty] = 1
+        line[:Amount] = -99
+        line[:OriginCode] = "Orig"
+        line[:DestinationCode] = "Dest"
+        line[:CustomerUsageType] = myusecode.try(:use_code)
+        line[:Description] = "White Glove"
+        line[:TaxCode] = "P0000000"
+        tax_line_items << line
+      end
+
+      gettaxes = {
+        :CustomerCode => order_details.user ? order_details.user.id : "Guest",
+        :DocDate => org_ord_date ? org_ord_date : Date.current.to_formatted_s(:db),
+
+        :CompanyCode => Spree::Config.avatax_company_code,
+        :CustomerUsageType => myusecode.try(:use_code),
+        :ExemptionNo => order_details.user.try(:exemption_number),
+        :Client =>  AVATAX_CLIENT_VERSION || "SpreeExtV2.3",
+        :DocCode => doc_code ? doc_code : order_details.number,
+
+        :Discount => order_details.all_adjustments.where(source_type: "Spree::PromotionAction").any? ? order_details.all_adjustments.where(source_type: "Spree::PromotionAction").pluck(:amount).reduce(&:+).to_f.abs : 0,
+
+        :ReferenceCode => order_details.number,
+        :DetailLevel => "Tax",
+        :Commit => commit,
+        :DocType => invoice_detail ? invoice_detail : "SalesInvoice",
+        :Addresses => addresses,
+        :Lines => tax_line_items
+      }
+
+      taxoverride = Hash.new
+      taxoverride[:TaxOverrideType] = "TaxDate"
+      taxoverride[:Reason] = "Adjustment for addition/removal of item"
+      taxoverride[:TaxDate] = org_ord_date
+      taxoverride[:TaxAmount] = "0"
+      
+      unless taxoverride.empty?
+        gettaxes[:TaxOverride] = taxoverride
+      end
+
+      AVALARA_TRANSACTION_LOGGER.debug gettaxes
+
+      mytax = TaxSvc.new
+
+      getTaxResult = mytax.get_tax(gettaxes)
+    
     end
-
 
     private
 
@@ -124,7 +199,7 @@ module Spree
 
     def origin_address
       origin = JSON.parse(Spree::Config.avatax_origin)
-      orig_address = Hash.new
+      orig_address = {}
       orig_address[:AddressCode] = "Orig"
       orig_address[:Line1] = origin["Address1"]
       orig_address[:City] = origin["City"]
@@ -135,7 +210,7 @@ module Spree
     end
 
     def origin_ship_address(line_item, origin)
-      orig_ship_address = Hash.new
+      orig_ship_address = {}
       orig_ship_address[:AddressCode] = line_item.id
       orig_ship_address[:Line1] = origin.address1
       orig_ship_address[:City] = origin.city
@@ -147,21 +222,9 @@ module Spree
     end
 
     def order_shipping_address
-      if order.ship_address.nil?
-        shipping_address = Hash.new
-        shipping_address[:AddressCode] = "Dest"
-        shipping_address[:Line1] = order.bill_address.address1
-        shipping_address[:Line2] = order.bill_address.address2
-        shipping_address[:City] = order.bill_address.city
-        shipping_address[:Region] = order.bill_address.state_name
-        shipping_address[:Country] = Country.find(order.bill_address.country_id).iso
-        shipping_address[:PostalCode] = order.bill_address.zipcode
-
-        AVALARA_TRANSACTION_LOGGER.debug shipping_address.to_xml
-        return shipping_address
-      else
-        shipping_address = Hash.new
-        shipping_address[:AddressCode] = "Dest"
+      unless order.ship_address.nil?
+        shipping_address = {}
+        shipping_address[:AddressCode] = 'Dest'
         shipping_address[:Line1] = order.ship_address.address1
         shipping_address[:Line2] = order.ship_address.address2
         shipping_address[:City] = order.ship_address.city
@@ -170,7 +233,7 @@ module Spree
         shipping_address[:PostalCode] = order.ship_address.zipcode
 
         AVALARA_TRANSACTION_LOGGER.debug shipping_address.to_xml
-        return shipping_address
+        shipping_address
       end
     end
 
@@ -186,7 +249,7 @@ module Spree
     end
 
     def shipment_line(shipment)
-      line = Hash.new
+      line = {}
       line[:LineNo] = "#{shipment.id}-FR"
       line[:ItemCode] = "Shipping"
       line[:Qty] = 1
@@ -195,29 +258,26 @@ module Spree
       line[:DestinationCode] = "Dest"
       line[:CustomerUsageType] = myusecode.try(:use_code)
       line[:Description] = "Shipping Charge"
-      line[:TaxCode] = shipment.shipping_method.tax_code || "FR000000"
+      line[:TaxCode] = "DBFR00000"
 
       AVALARA_TRANSACTION_LOGGER.debug line.to_xml
       return line
     end
 
-    # Not used anymore
-    # def promotion_line(promo)
-    #   line = Hash.new
-    #   line[:LineNo] = "#{promo.id}-PR"
-    #   line[:ItemCode] = "Promotion"
-    #   line[:Qty] = 0
-    #   line[:Amount] = promo.amount.to_f
-    #   line[:Discounted] = true
-    #   line[:OriginCode] = "Orig"
-    #   line[:DestinationCode] = "Dest"
-    #   line[:CustomerUsageType] = myusecode.try(:use_code)
-    #   line[:Description] = promo.label
-    #   line[:TaxCode] = ""
+    def return_authorization_line(return_authorization)
+      line = {}
+      line[:LineNo] = "#{return_authorization.id}-RA"
+      line[:ItemCode] = return_authorization.number || 'return_authorization'
+      line[:Qty] = 1
+      line[:Amount] = -return_authorization.amount.to_f
+      line[:OriginCode] = 'Orig'
+      line[:DestinationCode] = 'Dest'
+      line[:CustomerUsageType] = myusecode.try(:use_code)
+      line[:Description] = 'return_authorization'
 
-    #   AVALARA_TRANSACTION_LOGGER.debug line.to_xml
-    #   return line
-    # end
+      AVALARA_TRANSACTION_LOGGER.debug line.to_xml
+      line
+    end
 
     def myusecode
       begin
@@ -273,28 +333,28 @@ module Spree
       }
     end
 
-    def post_order_to_avalara(commit=false, orderitems=nil, order_details=nil, doc_code=nil, org_ord_date=nil, invoice_detail=nil)
+    def post_order_to_avalara(commit=false, orderitems=nil, order_details=nil, doc_code=nil, org_ord_date=nil, invoice_detail=nil, rma_id=nil)
       AVALARA_TRANSACTION_LOGGER.info("post order to avalara")
       address_validator = AddressSvc.new
-      tax_line_items = Array.new
-      addresses = Array.new
+      tax_line_items = []
+      addresses = []
 
       origin = JSON.parse(Spree::Config.avatax_origin)
-
-      i = 0
 
       if orderitems then
         unless invoice_detail == "ReturnInvoice" || invoice_detail == "ReturnOrder"
           orderitems.each do |line_item|
-            line = Hash.new
-            i += 1
+            line = {}
 
-            line[:LineNo] = line_item.id
+            line[:LineNo] = "#{line_item.id}-LI"
             line[:ItemCode] = line_item.variant.sku
             line[:Qty] = line_item.quantity
-            line[:Amount] = line_item.amount.to_f
+            line[:Amount] = (line_item.amount + line_item.white_glove_total).to_f
             line[:OriginCode] = "Orig"
             line[:DestinationCode] = "Dest"
+
+            # Add delivery_surcharge tax to line_item tax iff order is shipment_taxable (e.g. TN)
+            line[:Amount] += line_item.total_delivery_surcharge.to_f if order.shipment_taxable?
 
             AVALARA_TRANSACTION_LOGGER.info('about to check for User')
             AVALARA_TRANSACTION_LOGGER.debug myusecode
@@ -317,8 +377,6 @@ module Spree
             line[:TaxCode] = line_item.tax_category.try(:description) || "P0000000"
 
             AVALARA_TRANSACTION_LOGGER.info('about to check for shipped from')
-
-            shipped_from = order_details.inventory_units.where(:variant_id => line_item.id)
 
             packages = Spree::Stock::Coordinator.new(order_details).packages
 
@@ -348,40 +406,72 @@ module Spree
         unless invoice_detail == "ReturnInvoice" || invoice_detail == "ReturnOrder"
 
           order_details.shipments.each do |shipment|
-            tax_line_items<<shipment_line(shipment)
+            if shipment.tax_category
+              tax_line_items<<shipment_line(shipment)
+            end
           end
-
-          # order_details.all_adjustments.promotion.each do |adj|
-          #   tax_line_items<<promotion_line(adj)
-          # end
         end
+       
 
         order_details.return_authorizations.each do |return_auth|
-
-          line = Hash.new
-          i += 1
-          line[:LineNo] = "#{i}-RA"
-          line[:ItemCode] = "Return Authorization"
-          line[:Qty] = 1
-          if invoice_detail == "ReturnInvoice" || invoice_detail == "ReturnOrder"
-            line[:Amount] = -return_auth.amount.to_f
-          else
-            line[:Amount] = return_auth.amount.to_f
-
-          end
-          line[:OriginCode] = "Orig"
-          line[:DestinationCode] = "Dest"
-
-          if myusecode
+          next if return_auth.state == 'received' || return_auth.id != rma_id
+          tax_line_items<<return_authorization_line(return_auth)
+          
+          if rma_shipping_adj = order_details.adjustments.where(originator_type: "Spree::ShippingMethod").last
+            line = Hash.new
+            line[:LineNo] = "SHIP-ADJ-FR"
+            line[:ItemCode] = "RMA Shipping Adjustment"
+            line[:Qty] = 1
+            line[:Amount] = rma_shipping_adj.amount.to_f
+            line[:OriginCode] = "Orig"
+            line[:DestinationCode] = "Dest"
             line[:CustomerUsageType] = myusecode.try(:use_code)
+            line[:Description] = "RMA Shipping Adjustment"
+            line[:TaxCode] = "DBFR00000"
+            tax_line_items << line
           end
 
-          line[:Description] = return_auth.reason
-          line[:TaxCode] = ""
-
-          AVALARA_TRANSACTION_LOGGER.debug line.to_xml
-
-          tax_line_items<<line
+          if rma_surcharge_adj = order_details.adjustments.where('originator_type =? AND label LIKE ?', "Spree::ShippingMethod", "Return Surcharge%").last
+            line = Hash.new
+            line[:LineNo] = "SUR-ADJ-FR"
+            line[:ItemCode] = "RMA Delivery Surcharge Adjustment"
+            line[:Qty] = 1
+            line[:Amount] = rma_surcharge_adj.amount.to_f
+            line[:OriginCode] = "Orig"
+            line[:DestinationCode] = "Dest"
+            line[:CustomerUsageType] = myusecode.try(:use_code)
+            line[:Description] = "RMA Delivery Surcharge Adjustment"
+            line[:TaxCode] = "DBFR00000"
+            tax_line_items << line
+          end
+          
+          if rma_wg_adj = order_details.adjustments.where('originator_type =? AND label LIKE ?', "Spree::ShippingMethod", "Return White%").last
+            line = Hash.new
+            line[:LineNo] = "WG-ADJ-FR"
+            line[:ItemCode] = "RMA WhiteGlove Adjustment"
+            line[:Qty] = 1
+            line[:Amount] = rma_wg_adj.amount.to_f
+            line[:OriginCode] = "Orig"
+            line[:DestinationCode] = "Dest"
+            line[:CustomerUsageType] = myusecode.try(:use_code)
+            line[:Description] = "RMA WhitGlove Adjustment"
+            line[:TaxCode] = "P0000000"
+            tax_line_items << line
+          end
+          
+          if rma_promotion_adj = order_details.adjustments.where('label LIKE ?', "Return Promo%").last
+            line = Hash.new
+            line[:LineNo] = "PROMO-ADJ-FR"
+            line[:ItemCode] = "RMA Promo Adjustment"
+            line[:Qty] = 1
+            line[:Amount] = rma_promotion_adj.amount.to_f
+            line[:OriginCode] = "Orig"
+            line[:DestinationCode] = "Dest"
+            line[:CustomerUsageType] = myusecode.try(:use_code)
+            line[:Description] = "RMA Promo Adjustment"
+            line[:TaxCode] = "P0000000"
+            tax_line_items << line
+          end
         end
       end
 
@@ -397,7 +487,7 @@ module Spree
       addresses<<order_shipping_address
       addresses<<origin_address
 
-      taxoverride = Hash.new
+      taxoverride = {}
 
       if invoice_detail == "ReturnInvoice" || invoice_detail == "ReturnOrder"
         taxoverride[:TaxOverrideType] = "TaxDate"
@@ -416,7 +506,7 @@ module Spree
         :Client =>  AVATAX_CLIENT_VERSION || "SpreeExtV2.3",
         :DocCode => doc_code ? doc_code : order_details.number,
 
-        :Discount => order_details.all_adjustments.where(source_type: "Spree::PromotionAction").any? ? order_details.all_adjustments.where(source_type: "Spree::PromotionAction").pluck(:amount).reduce(&:+).to_f.abs : 0,
+        :Discount => order_details.discount_total,
 
         :ReferenceCode => order_details.number,
         :DetailLevel => "Tax",
@@ -426,6 +516,11 @@ module Spree
         :Lines => tax_line_items
       }
 
+      if order_details.completed_at && !(order_details.state == "returned" || order_details.state == "awaiting_return")
+        gettaxes[:Commit] = false
+        gettaxes[:DocCode] = "content-updater"
+      end
+      
       unless taxoverride.empty?
         gettaxes[:TaxOverride] = taxoverride
       end
@@ -433,7 +528,6 @@ module Spree
       AVALARA_TRANSACTION_LOGGER.debug gettaxes
 
       mytax = TaxSvc.new
-
       getTaxResult = mytax.get_tax(gettaxes)
 
       AVALARA_TRANSACTION_LOGGER.debug getTaxResult
@@ -449,6 +543,7 @@ module Spree
       end
       return @myrtntax
     end
+
     def document_committing_enabled?
       Spree::Config.avatax_document_commit
     end
